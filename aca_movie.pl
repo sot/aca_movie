@@ -424,7 +424,7 @@ sub usage
 
 =head1 NAME
 
-aca_movie.pl - Play a movie of ACA all Level-0 or Level-1 image data files in a directory
+aca_movie.pl - Play a movie of all ACA Level-0 or Level-1 image data files in a directory
 
 =head1 SYNOPSIS
 
@@ -474,6 +474,22 @@ given).
 Level-0 files are chosen as any files matching aca*<slot>_img0.fits*, while
 Level-1 files must match pcad*adat<slot>?.fits*.  Files can be gzipped.  If
 both L0 and L1 files are present, only the L0 files will be selected.
+
+The "Time step" radio button list lets you change the sampling, up to a maximum
+of about 1 ksec per step.
+
+The "delay" slider on the lower-right lets you slow down the movie (mostly
+useful for a fast Linux machine), while the Pause button lets you stop the
+action entirely.
+
+Clicking on 'reverse' will make the movie go backwards.  If you have paused,
+then 'Next' will go forward one time step.  
+
+The text box on the bottom records any instances in which a status bit or the
+command count or progress are non-zero.
+
+When no data are available for a particular slot, the image is completely white
+with a black slash from corner to corner.
 
 =head1 AUTHOR
 
