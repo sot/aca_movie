@@ -1,5 +1,15 @@
 #!/usr/bin/env /proj/axaf/bin/perlwrap
 
+######################################################################################
+# Name: aca_movie.pl
+#
+# Aca_movie.pl displays a movie of all ACA Level-0 or Level-1 image data files
+# within a specified directory (or the current directory if no directory is
+# given).
+#
+# Tom Aldcroft Jan-2004
+######################################################################################
+
 use warnings;
 use PDL;
 use PDL::NiceSlice;
@@ -18,7 +28,6 @@ our $MIN_LOW = 1.0;		# Minimum pixel value
 our $DT      = 2.05;		# default time step in movie
 our $BIG_TIME = 1e14;		# Large time
 our $ZOOM     = 8;
-our $MIN_UPDATE_TIME = 0.1;
 our $MAX_EVENT_LOG_LINES = 500;
 our $MAX_CONSEQ_EVENT = 10;
 
