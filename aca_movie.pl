@@ -1,4 +1,4 @@
-#!/usr/bin/env /proj/axaf/bin/perlwrap
+#!/usr/bin/env /proj/sot/ska/bin/perlska
 
 ######################################################################################
 # Name: aca_movie.pl
@@ -604,7 +604,9 @@ sub get_file {
 	}
 
 	# Create an info record for this file and store 
-	my $dt = $data{time}->at(1) - $data{time}->at(0); # uff, should use hdr
+	my $hdr = fits_read_hdr($name, 'ACADATA');
+#	my $dt = $data{time}->at(1) - $data{time}->at(0); # uff, should use hdr
+	my $dt = $hdr->{TIMEDEL};
 	my $tstart = $data{time}->at(0) - $dt/2;
 	my $tstop = $data{time}->at(-1) + $dt/2;
 	my ($sz) = dims $data{img};
