@@ -38,6 +38,9 @@ TEST_DEP =
 test: check_install $(BIN) install $(TEST_DEP)
 	$(INSTALL_BIN)/aca_movie.pl obs6120
 
+test_nolog: check_install $(BIN) install $(TEST_DEP)
+	$(INSTALL_BIN)/aca_movie.pl -nolog obs6120
+
 install:
 #  Uncomment the lines which apply for this task
 	mkdir -p $(INSTALL_BIN)

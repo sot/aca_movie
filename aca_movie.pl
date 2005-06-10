@@ -56,13 +56,14 @@ for $i (0 .. $MAX_DRC-1) {
 }
 
 # Set up parameter defaults and get command line options
-%opt = ( slot => "0 1 2 3 4 5 6 7",
-	 raw   => 0,
-	 loud => 0,
-	 tstart => 0,
-	 tstop  => $BIG_TIME,
-	 dt     => $DT,
-       );
+our %opt = ( slot => "0 1 2 3 4 5 6 7",
+	     raw   => 0,
+	     loud => 0,
+	     tstart => 0,
+	     tstop  => $BIG_TIME,
+	     dt     => $DT,
+	     log  => 1,
+	   );
 
 GetOptions(\%opt,
 	   "slot=s",
@@ -70,6 +71,7 @@ GetOptions(\%opt,
 	   "tstart=s",
 	   "tstop=s",
 	   "loud!",
+	   "log!",
 	   'help!',
 	   );
 
@@ -652,25 +654,33 @@ sub scale_image_data {
     # Return if the image data were already scaled
     return if $self->{file}{data}{scaled};
 
-    # For log scaling, make sure lower bound is positive
     my $img = $self->{file}{data}{img} + $MIN_LOW + 5.0;
-    $img = log10($img * ($img > $MIN_LOW) + $MIN_LOW * ($img <= $MIN_LOW));
+
+    # For log scaling, make sure lower bound is positive
+    $img = log10($img * ($img > $MIN_LOW) + $MIN_LOW * ($img <= $MIN_LOW))
+      if $opt{log};
 
     # Generate histogram of pixel values, add this to any existing histogram, and
     # then make the cumulative histogram
-    ($xvals, $self->{file}{hist}) = hist($img, 0, 5, 0.005);
+    my @hist_binning = $opt{log} ? (0, 5, 0.005) : (-200, 200000, 20);
+    ($xvals, $self->{file}{hist}) = hist($img, @hist_binning);
 
     $self->{hist} = zeroes($self->{file}{hist}) unless (exists $self->{hist} and $sz == $self->{last_sz});
     $self->{hist} += $self->{file}{hist};
     my $cumsum = cumusumover $self->{hist};
 
-    # Get the index of the 95th percentile, then scale to max of 255 and clip any
-    # outliers to 255
-    my $ok = which ($cumsum > 0.95*$cumsum->at(-1));
-    my $img_95th = $xvals($ok)->at(0);
-    print "img_95th for slot $self->{slot} = $img_95th\n" if $loud;
-    $img *= 255.0 / $img_95th;
-    $self->{file}{data}{img} = byte($img * ($img <= 255) + 255 * ($img > 255));
+    # Get the index of the 2nd and 98th percentile, then scale to max of 255 and clip any
+    # outliers to 0, 255
+    my $ok = which ($cumsum > 0.98*$cumsum->at(-1));
+    my $img_98th = $xvals($ok)->at(0);
+    $ok = which ($cumsum > 0.02*$cumsum->at(-1));
+    my $img_2nd = $xvals($ok)->at(0);
+    print "img_98th for slot $self->{slot} = $img_98th\n" if $loud;
+    print "img_2nd for slot  $self->{slot} = $img_2nd\n" if $loud;
+    $img = 255.0 * ($img - $img_2nd) / ($img_98th - $img_2nd);
+    $img = $img * ($img <= 255) + 255 * ($img > 255);
+    $img = $img * ($img >= 0) + 0 * ($img < 0);
+    $self->{file}{data}{img} = byte($img);
     
     # Set row,col limits if not already set.  (Normally these variables are
     # manipulated in the plotting itself)
