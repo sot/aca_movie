@@ -605,6 +605,14 @@ sub get_file {
 	    $data{col0} = $data{imgcol0};
 	}
 
+	# Fix a bug in CXCDS L0 decom which leaves the command count and progress
+	# shifted left by two bits.  We don't care about those two bits, so just
+	# shift right two bits.  (The trailing 0 in the shiftright function is just
+	# a weird calling requirement of the function).
+	for (qw(cmd_count cmd_progress commcnt commprog)) {
+	    $data{$_}->inplace->shiftright(2,0) if defined $data{$_};
+	}
+
 	# Create an info record for this file and store 
 	my $hdr = fits_read_hdr($name, 'ACADATA');
 #	my $dt = $data{time}->at(1) - $data{time}->at(0); # uff, should use hdr
