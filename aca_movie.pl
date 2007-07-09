@@ -47,20 +47,14 @@ our $MAX_CONSEQ_EVENT = 10;
 %limit_msids = map {$_ => undef}
   qw(quality glbstat commcnt commprog imgstat cmd_count cmd_progress img_stat global status);
 
-# Define the image for a slot with no current data
-@IDLE_IMG = ([]);
-for $i (0 .. $MAX_DRC-1) {
-    for $j (0 .. $MAX_DRC-1) {
-	$IDLE_IMG[$i][$j] = ($i == $j) ? '#000000' : '#ffffff';
-    }
-}
-
 # Set up parameter defaults and get command line options
 our %opt = ( slot => "0 1 2 3 4 5 6 7",
 	     raw   => 0,
 	     loud => 0,
 	     tstart => 0,
 	     tstop  => $BIG_TIME,
+	     winsize => $MAX_DRC,
+	     zoom => $ZOOM,
 	     dt     => $DT,
 	     log  => 1,
 	   );
@@ -70,6 +64,8 @@ GetOptions(\%opt,
 	   "raw!",
 	   "tstart=s",
 	   "tstop=s",
+	   "winsize=i",
+	   "zoom=i",
 	   "loud!",
 	   "log!",
 	   'help!',
@@ -78,6 +74,16 @@ GetOptions(\%opt,
 $opt{tstart} = date2time($opt{tstart}) if $opt{tstart} =~ /:/;
 # print "opt{tstart} = $opt{tstart}\n"; die;
 $opt{tstop} = date2time($opt{tstop}) if $opt{tstop} =~ /:/;
+$MAX_DRC = $opt{winsize};
+$ZOOM = $opt{zoom};
+
+# Define the image for a slot with no current data
+@IDLE_IMG = ([]);
+for $i (0 .. $MAX_DRC-1) {
+    for $j (0 .. $MAX_DRC-1) {
+	$IDLE_IMG[$i][$j] = ($i == $j) ? '#000000' : '#ffffff';
+    }
+}
 
 usage(1) if $opt{help};
 
@@ -460,6 +466,14 @@ within the available data files.
 
 Stop movie at <time>, where the time format is the same as for -tstart.  By
 default tstart is set to the last valid time within the available data files.
+
+=item B<-winsize <size>>
+
+Make the fixed image window be <size> x <size> pixels.  Default is 14.
+
+=item B<-zoom <scale>>
+
+Zoom the image data by <scale>.  Default is 8.  
 
 =item B<-loud>
 
