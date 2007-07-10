@@ -21,6 +21,8 @@ use Data::Dumper;
 use Tk;
 use Tk::Table;
 use Ska::Convert qw(time2date date2time);
+use POSIX ();
+use Quat;
 
 our @slot;
 our $MAX_DRC = 14;		# Size in pixels of window containing image data
@@ -43,6 +45,8 @@ our $MAX_CONSEQ_EVENT = 10;
 @PCAD_L1_FORMAT = qw(%d    %.2f      %.1f       %.1f     %.1f    %.1f    %d
 		      %d               %d    %d        %d              %d);
 
+our %asol;  # global info about aspect solution, if needed
+
 # MSIDs which are checked and reported in the event log if != 0
 %limit_msids = map {$_ => undef}
   qw(quality glbstat commcnt commprog imgstat cmd_count cmd_progress img_stat global status);
@@ -53,7 +57,7 @@ our %opt = ( slot => "0 1 2 3 4 5 6 7",
 	     loud => 0,
 	     tstart => 0,
 	     tstop  => $BIG_TIME,
-	     winsize => $MAX_DRC,
+	     canvas_size => $MAX_DRC,
 	     zoom => $ZOOM,
 	     dt     => $DT,
 	     log  => 1,
@@ -64,17 +68,19 @@ GetOptions(\%opt,
 	   "raw!",
 	   "tstart=s",
 	   "tstop=s",
-	   "winsize=i",
+	   "canvas_size=i",
 	   "zoom=i",
 	   "loud!",
 	   "log!",
 	   'help!',
+	   'overlay!',
+	   'asol=s',
 	   );
 
 $opt{tstart} = date2time($opt{tstart}) if $opt{tstart} =~ /:/;
 # print "opt{tstart} = $opt{tstart}\n"; die;
 $opt{tstop} = date2time($opt{tstop}) if $opt{tstop} =~ /:/;
-$MAX_DRC = $opt{winsize};
+$MAX_DRC = $opt{canvas_size};
 $ZOOM = $opt{zoom};
 
 # Define the image for a slot with no current data
@@ -103,7 +109,10 @@ $tstart = $BIG_TIME;
 $tstop  = 0;
 
 foreach $s (@slot) {
-    next unless ($slts[$s] = new Slot (slot => $s, use_raw => $opt{raw}));
+    next unless $slts[$s] = Slot->new(slot => $s,
+				      use_raw => $opt{raw},
+				      canvas_size => $opt{canvas_size},
+				     );
     $file_level = $slts[$s]->{file_level}; # Indicates ACA L0 (0) or PCAD L1 ACADATA (1)
     $tstart = $slts[$s]->{tstart} if $slts[$s]->{tstart} < $tstart;
     $tstop = $slts[$s]->{tstop} if $slts[$s]->{tstop} > $tstop;
@@ -283,10 +292,43 @@ sub show_image_frame {
 }
 
 ##***************************************************************************
+sub get_aspect_offset {
+##***************************************************************************
+    my $asol_file = shift;
+    my $time = shift;
+    if (not defined $asol{file}) {
+	# First time through
+	$asol{file} = $asol_file;
+	$asol{data} = { CFITSIO::Simple::fits_read_bintbl($asol{file}, qw(time ra dec roll)) };
+	$asol{hdr}  = CFITSIO::Simple::fits_read_hdr("$asol{file}\[1\]");
+	$asol{q0} = Quat->new($asol{hdr}->{RA_NOM}, $asol{hdr}->{DEC_NOM}, $asol{hdr}->{ROLL_NOM});
+	$asol{last_i} = 0;
+	$asol{n_row} = $asol{data}->{time}->nelem();
+    }
+    my $i = $asol{last_i};
+    while ($i < $asol{n_row} && $asol{data}->{time}->at($i) < $time) {
+	$i++;
+    }
+    if ($i != $asol{last_i}) {
+	$asol{q} = Quat->new($asol{data}->{ra}->at($i),
+			     $asol{data}->{dec}->at($i),
+			     $asol{data}->{roll}->at($i));
+	$asol{dq} = $asol{q}->divide($asol{q0});
+	$asol{dy} = $asol{dq}->{ra0} * 3600;   # For small angles this is correct 
+	$asol{dz} = $asol{dq}->{dec} * 3600;   # (normally use radec2yagzag)
+	$asol{last_i} = $i;
+    }
+    return ($asol{dy}, $asol{dz});
+}
+
+
 sub get_image_frame {
 # Go through all slots and assemble a complete 'frame' of data (images
 # and telemetry variables)
 ##***************************************************************************
+    my $canvas_sz = $opt{canvas_size};
+    my ($dy, $dz) = get_aspect_offset($opt{asol}, $time) if $opt{asol};
+
     for $s (@slot) {
 	# Clear all the information table information for this slot and set all
 	# limit-checked msids to have the default background color
@@ -299,53 +341,33 @@ sub get_image_frame {
 	# set the image to a predefined 'idle' image
 	unless ($slt = $slts[$s] and $img = $slt->get_image($time)) {
 	    $slot_img->put(\@IDLE_IMG);
-	    $all_img->copy ($slot_img, -zoom => $ZOOM, -to => ($s*$MAX_DRC*$ZOOM+$s+1, 0));
+	    $all_img->copy ($slot_img, -zoom => $ZOOM, -to => ($s*$canvas_sz*$ZOOM+$s+1, 0));
 	    next;
 	}
 
 	print "Processing slot $s\n" if $loud;
 
-	# Set the corners of the image relative to current extended image window
-	$sz = $slt->{file}{sz};
-	$sc0 = $img->{col0} - $slt->{c0};
-	$sc1 = $sc0 + $sz - 1;
-	$sr0 = $img->{row0} - $slt->{r0};
-	$sr1 = $sr0 + $sz - 1;
-	
-	# Check if image falls outside extended image window
-	if ($sc0 < 0) {
-	    $slt->{c0} = $img->{col0};
-	} elsif ($sc1 >= $MAX_DRC) {
-	    $slt->{c0} = $img->{col0} + $sz - $MAX_DRC;
-	}
-	if ($sr0 < 0) {
-	    $slt->{r0} = $img->{row0};
-	} elsif ($sr1 >= $MAX_DRC) {
-	    $slt->{r0} = $img->{row0} + $sz - $MAX_DRC;
-	}
-	    
-	# recalculate since $c0 or $r0 may have changed.  
-	$sc0 = $img->{col0} - $slt->{c0};
-	$sc1 = $sc0 + $sz - 1;
-	$sr0 = $img->{row0} - $slt->{r0};
-	$sr1 = $sr0 + $sz - 1;
+	$slt->{canvas} = zeroes($opt{canvas_size}, $opt{canvas_size})
+	  unless $opt{overlay};
 
-	# Copy the individual image into extended image window
-	$image = zeroes($MAX_DRC, $MAX_DRC);
-	$image($sc0:$sc1, $sr0:$sr1) .= $img->{img};
+	if (defined $dy and defined $dz) {
+	    $slt->put_img_to_canvas_sky($img, $dy, $dz);
+	} else {
+	    $slt->put_img_to_canvas_ccd($img);
+	}	    
 
 	# Set the color array for the Tk image
 	@carr = ([]);
-	for $i (0 .. $MAX_DRC-1) {
-	    for $j (0 .. $MAX_DRC-1) {
-		$color = sprintf ("%02x", $image->at($MAX_DRC-1-$i,$j));
+	for $i (0 .. $canvas_sz-1) {
+	    for $j (0 .. $canvas_sz-1) {
+		$color = sprintf ("%02x", $slt->{canvas}->at($canvas_sz-1-$i,$j));
 		push @{$carr[$i]}, "#$color$color$color";
 	    }
 	}
 
 	# Put the color array into an image for slot, then copy into main window
 	$slot_img->put(\@carr);
-	$all_img->copy ($slot_img, -zoom => $ZOOM, -to => ($s*$MAX_DRC*$ZOOM+$s+1, 0));
+	$all_img->copy ($slot_img, -zoom => $ZOOM, -to => ($s*$canvas_sz*$ZOOM+$s+1, 0));
 
 	# Set telemetry information table and check limits
 	foreach $j (0 .. $#info_msid) {
@@ -368,7 +390,7 @@ sub get_image_frame {
 	if ($loud) {
 	    print "slot: $s row: $img->{row0}  col:  $img->{col0}\n";
 	    print $img->{img};
-	    print "slot $s ", $img->{row0}, " ", $img->{col0}, " ", $sz, " \n";
+	    print "slot $s ", $img->{row0}, " ", $img->{col0}, " ", $slt->{sz}, " \n";
 	}
     }
     update_event_log();
@@ -467,13 +489,23 @@ within the available data files.
 Stop movie at <time>, where the time format is the same as for -tstart.  By
 default tstart is set to the last valid time within the available data files.
 
-=item B<-winsize <size>>
+=item B<-canvas_size <size>>
 
 Make the fixed image window be <size> x <size> pixels.  Default is 14.
 
 =item B<-zoom <scale>>
 
 Zoom the image data by <scale>.  Default is 8.  
+
+=item B<-overlay>
+
+Overlay new image data instead of erasing first.
+
+=item B<-asol <asol_file>>
+
+Use the supplied aspect solution file <asol_file> to display the image data
+on a fixed sky grid instead of the default fixed CCD grid.  The <asol_file> must be in the
+<Image_directory> containing the image data files.
 
 =item B<-loud>
 
@@ -523,6 +555,7 @@ use PDL::NiceSlice;
 use CFITSIO::Simple;
 use Carp;
 use Data::Dumper;
+use Ska::ACACoordConvert qw(toAngle);
 
 our $BIG_TIME = 1e14;
 
@@ -548,6 +581,7 @@ sub new {
 			    n      => -1},
 		 file_list   => [],
 		 file_info   => {}, # Hashref of file information/data
+		 canvas_size     => 14,
 		 @_
 	       );
 
@@ -568,6 +602,7 @@ sub new {
     $self->{tstart} = $file_tstart if $file_tstart > $self->{tstart};
     my $hdr = fits_read_hdr($files[-1]);
     $self->{tstop} = $hdr->{TSTOP};
+    $self->{canvas} = zeroes($self->{canvas_size}, $self->{canvas_size});
 
     return $self;
 }
@@ -655,6 +690,85 @@ sub get_file {
     }
 
     return;
+}
+
+##****************************************************************************
+sub put_img_to_canvas_ccd {
+#
+# Set object variables which control brightness scaling and
+#  CCD region corresponding to first image
+# Apply some simple calibrations and manipulations to table data
+#
+##****************************************************************************
+    my $self = shift;
+    my $img = shift;
+    
+    # Set the corners of the image relative to current extended image window
+    my $sz = $self->{file}{sz};
+
+    my $sc0 = $img->{col0} - $self->{c0};
+    my $sc1 = $sc0 + $sz - 1;
+    my $sr0 = $img->{row0} - $self->{r0};
+    my $sr1 = $sr0 + $sz - 1;
+	
+    # Check if image falls outside extended image window
+    if ($sc0 < 0) {
+	$self->{c0} = $img->{col0};
+    } elsif ($sc1 >= $self->{canvas_size}) {
+	$self->{c0} = $img->{col0} + $sz - $self->{canvas_size};
+    }
+    if ($sr0 < 0) {
+	$self->{r0} = $img->{row0};
+    } elsif ($sr1 >= $self->{canvas_size}) {
+	$self->{r0} = $img->{row0} + $sz - $self->{canvas_size};
+    }
+	    
+    # recalculate since $c0 or $r0 may have changed.  
+    $sc0 = $img->{col0} - $self->{c0};
+    $sc1 = $sc0 + $sz - 1;
+    $sr0 = $img->{row0} - $self->{r0};
+    $sr1 = $sr0 + $sz - 1;
+
+    # Copy the individual image into extended image window
+    $self->{canvas}->($sc0:$sc1, $sr0:$sr1) .= $img->{img};
+}
+
+##****************************************************************************
+sub put_img_to_canvas_sky {
+#
+# Set object variables which control brightness scaling and
+#  CCD region corresponding to first image
+# Apply some simple calibrations and manipulations to table data
+#
+##****************************************************************************
+    my $self = shift;
+    my $img = shift;
+    my $dy = shift;
+    my $dz = shift;
+    
+    # Set the corners of the image relative to current extended image window
+    my $sz = $self->{file}{sz};
+    my $cansz2 = $self->{canvas_size}/2;
+
+    # Coordinates of lower-left image pixel in ACA yag,zag
+    my ($y0, $z0) = toAngle(sclr($img->{row0}), sclr($img->{col0}));
+    if (not defined $self->{y0}) {
+	($self->{y0}, $self->{z0}) = ($y0, $z0);
+    }
+    # Add offset of the ACA yag,zag frame based on aspect solution offset
+    print "Aspect offset = $dy $dz\n" if $loud;
+    $y0 += $dy;  
+    $z0 += $dz;  
+
+    my $c_r0 = POSIX::floor( ($z0 - $self->{z0}) / 5.0 + 0.5);
+    my $c_c0 = POSIX::floor(-($y0 - $self->{y0}) / 5.0 + 0.5);
+    for $img_row (0..$sz-1) {
+	for $img_col (0..$sz-1) {
+	    #  The 'transposition' of c_c0+row and c_r0+col is correct!
+	    $self->{canvas}->($c_c0 + $img_row + $cansz2, $c_r0 + $img_col + $cansz2)
+	      .= $img->{img}->at($img_col, $img_row);
+	}
+    }
 }
 
 ##****************************************************************************
