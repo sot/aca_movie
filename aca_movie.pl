@@ -33,6 +33,7 @@ our $BIG_TIME = 1e14;		# Large time
 our $ZOOM     = 8;
 our $MAX_EVENT_LOG_LINES = 500;
 our $MAX_CONSEQ_EVENT = 10;
+my $MICA_ASP1 = '/data/aca/archive/asp1';
 
 # Define L0 and L1 data fields that get displayed, and the corresponding formats
 @ACA_L0_MSIDS = qw(slot QUALITY MJF MNF INTEG GLBSTAT COMMCNT COMMPROG IMGFID1 IMGNUM1 IMGFUNC1 IMGSTAT IMGROW0       
@@ -54,6 +55,7 @@ our %asol;  # global info about aspect solution, if needed
 
 # Set up parameter defaults and get command line options
 our %opt = ( slot => "0 1 2 3 4 5 6 7",
+             obsid => undef,
 	     raw   => 0,
 	     loud => 0,
 	     tstart => 0,
@@ -67,6 +69,7 @@ our %opt = ( slot => "0 1 2 3 4 5 6 7",
 
 GetOptions(\%opt,
 	   "slot=s",
+           "obsid=i",
 	   "raw!",
 	   "tstart=s",
 	   "tstop=s",
@@ -99,8 +102,27 @@ usage(1) if $opt{help};
 $Slot::loud = $opt{loud};
 $loud = $opt{loud};
 
-# Change into specified data directory
-($data_dir = shift @ARGV) and (chdir $data_dir or croak "Could not find directory $data_dir\n");
+my $obs_dir;
+if ($opt{obsid}){
+  my $obs_str = sprintf("%05d", $opt{obsid});
+  my $obs_top_dir = substr($obs_str, 0, 2);
+  my @obs_dirs = sort(glob("${MICA_ASP1}/${obs_top_dir}/${obs_str}_*"));
+  if (scalar(@obs_dirs)){
+    $obs_dir = $obs_dirs[-1];
+    print "using $obs_dir for data_dir\n" if $opt{loud}; 
+  }
+  else{
+    croak("-obsid specified but directory not found in ${MICA_ASP1}/${obs_top_dir}");
+  }
+}
+
+if (defined $obs_dir){
+  ($data_dir = $obs_dir) and (chdir $data_dir or croak "Could not find directory $data_dir\n");
+}
+else{
+  # Change into specified data directory
+  ($data_dir = shift @ARGV) and (chdir $data_dir or croak "Could not find directory $data_dir\n");
+}
 
 # For each specified slot, create a new slot object.  This reads in the list
 # of files corresponding to each slot and sets the global start and stop time
@@ -498,6 +520,10 @@ B<aca_movie.pl>  [I<options>] [<Image_directory>]
 =item B<-help>
 
 Print this help information.
+
+=item B<-obsid <obsid>>
+
+Display data for obsid <obsid>.  Uses the most recent asp1 processing in the mica archive.
 
 =item B<-slot <slots>>
 
