@@ -42,9 +42,9 @@ my $MICA_ASP1 = '/data/aca/archive/asp1';
 @ACA_L0_FORMAT= qw( %d     %d     %d  %d  %.2f   %d        %d      %d      %d       %d      %d       %d    %d
 		     %d     %d        %d     %d       %d       %d    %d       %.1f   %.1f     %.1f     %.1f
 		     %d       %d      %d      %d      %d       %d    %d);
-@PCAD_L1_MSIDS = qw(slot obc_mag_i obc_ang_y obc_ang_z bkg_rms bkg_avg cmd_count
+@PCAD_L1_MSIDS = qw(slot obc_mag_i obc_ang_y obc_ang_z img_row0 img_col0 bkg_rms bkg_avg cmd_count
 		    cmd_progress img_func img_stat global_status bkg_outliers);
-@PCAD_L1_FORMAT = qw(%d    %.2f      %.1f       %.1f     %.1f    %.1f    %d
+@PCAD_L1_FORMAT = qw(%d    %.2f      %.1f       %.1f      %d        %d    %.1f    %.1f    %d
 		      %d               %d    %d        %d              %d);
 
 our %asol;  # global info about aspect solution, if needed
