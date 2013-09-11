@@ -64,7 +64,7 @@ our %opt = ( slot => "0 1 2 3 4 5 6 7",
 	     zoom => $ZOOM,
 	     dt     => $DT,
 	     log  => 1,
-         dark_cal => '/proj/sot/ska/data/aca_dark_cal/2013191/imd.fits',
+             dark_cal => 1,
 	   );
 
 GetOptions(\%opt,
@@ -80,7 +80,7 @@ GetOptions(\%opt,
 	   'help!',
 	   'overlay!',
 	   'asol=s',
-       'dark_cal=s',
+       'dark_cal!',
 	   );
 
 $opt{tstart} = date2time($opt{tstart}) if $opt{tstart} =~ /:/;
@@ -153,12 +153,34 @@ $| = 1;
 $time   = ($opt{dt} > 0) ? $tstart : $tstop;
 $time_direction = 1;
 
-if ($opt{asol}){
-  print "Dark Cal background image not implemented in -asol mode\n";
+my $dc;
+if ($opt{dark_cal}){
+  if ($opt{asol}){
+    print "Dark Cal background image not implemented in -asol mode\n";
+  }
+  my $tstart_date = time2date($tstart);
+  my $tstr;
+  if ($tstart_date =~ '(\d{4}):(\d{3}):.*'){
+    $tstr = "$1$2";
+  }
+  my @dark_cals = reverse(sort(glob('/proj/sot/ska/data/aca_dark_cal/[12][0-9][0-9][0-9][0-9][0-9][0-9]/')));
+  for my $poss_dc (@dark_cals){
+    if ($poss_dc =~ '/proj/sot/ska/data/aca_dark_cal/(\d{7})'){
+      my $date_str = $1;
+      # if the date of the dark cal is before tstart (represented as just YYYYDOY in tstr),
+      # read that dark cal and leave the loop.
+      if ($date_str < $tstr){
+        print "Reading dark cal from $poss_dc\n" if $opt{loud};
+        $dc = rdfits("${poss_dc}/imd.fits");
+        $dc = dark_cal_bgd_subtract($dc);
+        last;
+      }
+    }
+  }
+  if (not defined $dc){
+    croak("Problem loading dark cal data");
+  }
 }
-# read dark cal
-my $dc = rdfits($opt{dark_cal});
-$dc = dark_cal_bgd_subtract($dc);
 
 # Create the main display
 make_gui();
@@ -525,6 +547,10 @@ Print this help information.
 
 Display data for obsid <obsid>.  Uses the most recent asp1 processing in the mica archive.
 
+=tem B<-dark_cal>
+
+Enable/disable use of dark cal image in the window background.
+
 =item B<-slot <slots>>
 
 Play movie for slots <slots>, which should be a space- or comma-separated list
@@ -780,12 +806,14 @@ sub put_img_to_canvas_ccd {
 	$self->{r0} = $img->{row0} + $sz - $self->{canvas_size};
     }
 
-    # put the dark cal image up there
-    $win_dc = $dc->($self->{c0} - 512:$self->{c0} + $self->{canvas_size} - 513,
-                    $self->{r0} - 512:$self->{r0} + $self->{canvas_size} - 513);
-    # scale it using the image data as a reference
-    my $scaled_dc = scale_dc($win_dc, $self);
-    $self->{canvas} .= $scaled_dc;
+    if (defined $dc){
+      # put the dark cal image up there
+      $win_dc = $dc->($self->{c0} - 512:$self->{c0} + $self->{canvas_size} - 513,
+                      $self->{r0} - 512:$self->{r0} + $self->{canvas_size} - 513);
+      # scale it using the image data as a reference
+      my $scaled_dc = scale_dc($win_dc, $self);
+      $self->{canvas} .= $scaled_dc;
+    }
 
     # recalculate since $c0 or $r0 may have changed.  
     $sc0 = $img->{col0} - $self->{c0};
