@@ -236,8 +236,8 @@ sub make_gui {
   $top = MainWindow->new();
   
   # Pixel images of 8 slots, at top
-  $slot_img = $top->Photo( 'slot_img' , -palette => 140);
-  $all_img  = $top->Photo( 'all_img' , -palette => 140);
+  $slot_img = $top->Photo( 'slot_img' , -palette => 256/256/256);
+  $all_img  = $top->Photo( 'all_img' , -palette => 256/256/256);
   $all_img->put (("#ffffff"), -to => (0, 0, $MAX_DRC * 8 * $ZOOM + 9, $MAX_DRC * $ZOOM));
   $top->Label('-image'=> $all_img  )->pack;
   
@@ -425,10 +425,11 @@ sub get_image_frame {
 	$slt->{canvas} = zeroes($opt{canvas_size}, $opt{canvas_size})
 	  unless $opt{overlay};
 
+        my $cmask;
 	if (defined $dy and defined $dz) {
 	    $slt->put_img_to_canvas_sky($img, $dy, $dz);
 	} else {
-	    $slt->put_img_to_canvas_ccd($img);
+	    $cmask = $slt->put_img_to_canvas_ccd($img);
 	}	    
 
 	# Set the color array for the Tk image
@@ -440,6 +441,21 @@ sub get_image_frame {
 	    }
 	}
 
+	# Change the background when using a dark cal
+        if (defined $dc){
+          for $i (0 .. $canvas_sz-1) {
+	    for $j (0 .. $canvas_sz-1) {
+              my $v =  $slt->{canvas}->at($canvas_sz-1-$i, $j);
+              my $live_img = $cmask->at($canvas_sz-1-$i, $j);
+              if (not $live_img){
+                $color1 = sprintf ("%02x", $slt->{canvas}->at($canvas_sz-1-$i,$j) + 30);
+                $color2 = sprintf ("%02x", $slt->{canvas}->at($canvas_sz-1-$i,$j));
+                $color3 = sprintf ("%02x", $slt->{canvas}->at($canvas_sz-1-$i,$j));
+                $carr[$i]->[$j] = "#$color1$color2$color3";
+              }
+            }
+          }
+        }
 	# Put the color array into an image for slot, then copy into main window
 	$slot_img->put(\@carr);
 	$all_img->copy ($slot_img, -zoom => $ZOOM, -to => ($s*$canvas_sz*$ZOOM+$s+1, 0));
@@ -806,6 +822,7 @@ sub put_img_to_canvas_ccd {
 	$self->{r0} = $img->{row0} + $sz - $self->{canvas_size};
     }
 
+
     if (defined $dc){
       # put the dark cal image up there
       $win_dc = $dc->($self->{c0} - 512:$self->{c0} + $self->{canvas_size} - 513,
@@ -823,7 +840,13 @@ sub put_img_to_canvas_ccd {
 
     # Copy the individual image into extended image window
     $self->{canvas}->($sc0:$sc1, $sr0:$sr1) .= $img->{img};
+
+    # make a mask to note which values of the canvas are real image data
+    my $color_mask = zeros($self->{canvas});
+    $color_mask->($sc0:$sc1, $sr0:$sr1) .= 1;
+    return $color_mask;
 }
+
 
 ##****************************************************************************
 sub put_img_to_canvas_sky {
@@ -875,8 +898,9 @@ sub scale_dc {
     # this is just a placeholder.
     my $img_98th = $self->{file}{data}{img_98th};
     my $img_2nd = $self->{file}{data}{img_2nd};
-    $dc_img = 255.0 * ($dc_img - $img_2nd) / ($img_98th - $img_2nd);
-    $dc_img = $dc_img * ($dc_img <= 255) + 255 * ($dc_img > 255);
+    my $MAX = 225;
+    $dc_img = $MAX * ($dc_img - $img_2nd) / ($img_98th - $img_2nd);
+    $dc_img = $dc_img * ($dc_img <= $MAX) + $MAX * ($dc_img > $MAX);
     $dc_img = $dc_img * ($dc_img >= 0) + 0 * ($dc_img < 0);
     return byte($dc_img);
   }
