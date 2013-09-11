@@ -131,6 +131,9 @@ $| = 1;
 $time   = ($opt{dt} > 0) ? $tstart : $tstop;
 $time_direction = 1;
 
+if ($opt{asol}){
+  print "Dark Cal background image not implemented in -asol mode\n";
+}
 # read dark cal
 my $dc = rdfits($opt{dark_cal});
 $dc = dark_cal_bgd_subtract($dc);
