@@ -14,6 +14,7 @@ use warnings;
 use PDL;
 use PDL::NiceSlice;
 use PDL::ImageND;
+use Astro::FITS::CFITSIO::Simple qw(rdfits);
 use Time::HiRes qw(sleep);
 use Getopt::Long;
 use Carp;
@@ -61,6 +62,7 @@ our %opt = ( slot => "0 1 2 3 4 5 6 7",
 	     zoom => $ZOOM,
 	     dt     => $DT,
 	     log  => 1,
+         dark_cal => '/proj/sot/ska/data/aca_dark_cal/2013191/imd.fits',
 	   );
 
 GetOptions(\%opt,
@@ -75,6 +77,7 @@ GetOptions(\%opt,
 	   'help!',
 	   'overlay!',
 	   'asol=s',
+       'dark_cal=s',
 	   );
 
 $opt{tstart} = date2time($opt{tstart}) if $opt{tstart} =~ /:/;
@@ -128,6 +131,10 @@ $| = 1;
 $time   = ($opt{dt} > 0) ? $tstart : $tstop;
 $time_direction = 1;
 
+# read dark cal
+my $dc = rdfits($opt{dark_cal});
+$dc = dark_cal_bgd_subtract($dc);
+
 # Create the main display
 make_gui();
 
@@ -139,6 +146,28 @@ $show_image_id = $top->after(0, \&show_image_frame);
 MainLoop();
 
 print "\nDone\n";
+##****************************************************************************
+sub dark_cal_bgd_subtract {
+# subtract off the value of the peak of the dark cal histogram
+#
+##****************************************************************************
+    my $all_dc = shift;
+
+    ($xvals, my $dc_hist) = hist($all_dc, (0,30,1));
+    my $peak =  $xvals(which($dc_hist == $dc_hist->(1:-2)->max()))->at(0);
+    my $sdc = $all_dc - $peak;
+    my $DC_LOW = 1;
+    $sdc = $sdc + $DC_LOW;
+    # For log scaling, make sure lower bound is positive
+    if ($opt{log}){
+      $sdc = log10($sdc * ($sdc > $DC_LOW) + $DC_LOW * ($sdc <= $DC_LOW))
+    }
+    else{
+      $sdc = $sdc * ($sdc > $DC_LOW) + $DC_LOW * ($sdc <= $DC_LOW);
+    }
+
+    return $sdc;
+  }
 
 ##***************************************************************************
 sub set_limit_indices {
@@ -160,8 +189,7 @@ sub make_gui {
   $top = MainWindow->new();
   
   # Pixel images of 8 slots, at top
-
-  $slot_img  = $top->Photo( 'slot_img' , -palette => 140);
+  $slot_img = $top->Photo( 'slot_img' , -palette => 140);
   $all_img  = $top->Photo( 'all_img' , -palette => 140);
   $all_img->put (("#ffffff"), -to => (0, 0, $MAX_DRC * 8 * $ZOOM + 9, $MAX_DRC * $ZOOM));
   $top->Label('-image'=> $all_img  )->pack;
@@ -722,7 +750,14 @@ sub put_img_to_canvas_ccd {
     } elsif ($sr1 >= $self->{canvas_size}) {
 	$self->{r0} = $img->{row0} + $sz - $self->{canvas_size};
     }
-	    
+
+    # put the dark cal image up there
+    $win_dc = $dc->($self->{c0} - 512:$self->{c0} + $self->{canvas_size} - 513,
+                    $self->{r0} - 512:$self->{r0} + $self->{canvas_size} - 513);
+    # scale it using the image data as a reference
+    my $scaled_dc = scale_dc($win_dc, $self);
+    $self->{canvas} .= $scaled_dc;
+
     # recalculate since $c0 or $r0 may have changed.  
     $sc0 = $img->{col0} - $self->{c0};
     $sc1 = $sc0 + $sz - 1;
@@ -771,6 +806,26 @@ sub put_img_to_canvas_sky {
     }
 }
 
+
+
+##****************************************************************************
+sub scale_dc {
+##****************************************************************************
+    my $dc_img = shift;
+    my $self = shift;
+
+    # use the percentiles from the image data to scale the dark cal
+    # this is just a placeholder.
+    my $img_98th = $self->{file}{data}{img_98th};
+    my $img_2nd = $self->{file}{data}{img_2nd};
+    $dc_img = 255.0 * ($dc_img - $img_2nd) / ($img_98th - $img_2nd);
+    $dc_img = $dc_img * ($dc_img <= 255) + 255 * ($dc_img > 255);
+    $dc_img = $dc_img * ($dc_img >= 0) + 0 * ($dc_img < 0);
+    return byte($dc_img);
+  }
+
+
+
 ##****************************************************************************
 sub scale_image_data {
 #
@@ -811,6 +866,8 @@ sub scale_image_data {
     my $img_98th = $xvals($ok)->at(0);
     $ok = which ($cumsum > 0.02*$cumsum->at(-1));
     my $img_2nd = $xvals($ok)->at(0);
+    $self->{file}{data}{img_98th} = $img_98th;
+    $self->{file}{data}{img_2nd} = $img_2nd;
     print "img_98th for slot $self->{slot} = $img_98th\n" if $loud;
     print "img_2nd for slot  $self->{slot} = $img_2nd\n" if $loud;
     $img = 255.0 * ($img - $img_2nd) / ($img_98th - $img_2nd);
