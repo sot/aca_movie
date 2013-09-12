@@ -407,7 +407,9 @@ sub get_image_frame {
     for $s (@slot) {
 	# Clear all the information table information for this slot and set all
 	# limit-checked msids to have the default background color
-	map { $info_table_txt[$_][$s+1] = '      ' } (0 .. $#info_msid);
+        for my $im (0 .. $#info_msid){
+	  $info_table_txt[$im][$s+1] = '      ';
+        }
 	foreach (values %limit_msids) {
 	    $info_table->get($_, $s+1)->configure(-background=>'#d5d5d5');
 	}
