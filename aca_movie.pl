@@ -826,12 +826,18 @@ sub put_img_to_canvas_ccd {
 
 
     if (defined $dc){
-      # put the dark cal image up there
-      $win_dc = $dc->($self->{c0} - 512:$self->{c0} + $self->{canvas_size} - 513,
-                      $self->{r0} - 512:$self->{r0} + $self->{canvas_size} - 513);
-      # scale it using the image data as a reference
-      my $scaled_dc = scale_dc($win_dc, $self);
-      $self->{canvas} .= $scaled_dc;
+      eval{
+           # put the dark cal image up there
+          $win_dc = $dc->($self->{c0} - 512:$self->{c0} + $self->{canvas_size} - 513,
+                          $self->{r0} - 512:$self->{r0} + $self->{canvas_size} - 513);
+          # scale it using the image data as a reference
+          my $scaled_dc = scale_dc($win_dc, $self);
+          $self->{canvas} .= $scaled_dc;
+
+      };
+      if ($@){
+          print $@;
+      }
     }
 
     # recalculate since $c0 or $r0 may have changed.  
