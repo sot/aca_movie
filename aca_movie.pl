@@ -24,6 +24,10 @@ use Tk::Table;
 use Ska::Convert qw(time2date date2time);
 use POSIX ();
 use Quat;
+use File::Temp qw(tempdir);
+use Ska::DatabaseUtil qw(sql_connect sql_fetchall_array_of_hashref);
+use List::MoreUtils qw(first_index last_index);
+use File::Basename qw(basename);
 
 our @slot;
 our $MAX_DRC = 14;		# Size in pixels of window containing image data
@@ -65,6 +69,7 @@ our %opt = ( slot => "0 1 2 3 4 5 6 7",
 	     dt     => $DT,
 	     log  => 1,
              dark_cal => 1,
+         level1 => 0,
          obsdir => undef,
 	   );
 
@@ -82,6 +87,7 @@ GetOptions(\%opt,
 	   'overlay!',
 	   'asol=s',
        'dark_cal!',
+       'level1!',
        'obsdir=s',
 	   );
 
@@ -109,17 +115,102 @@ if ($opt{obsdir}){
     $obs_dir = $opt{obsdir};
 }
 if ($opt{obsid}){
-  my $obs_str = sprintf("%05d", $opt{obsid});
-  my $obs_top_dir = substr($obs_str, 0, 2);
-  my @obs_dirs = sort(glob("${MICA_ASP1}/${obs_top_dir}/${obs_str}_*"));
-  if (scalar(@obs_dirs)){
-    $obs_dir = $obs_dirs[-1];
-    print "using $obs_dir for data_dir\n" if $opt{loud}; 
+  if ($opt{level1}){
+      my $obs_str = sprintf("%05d", $opt{obsid});
+      my $obs_top_dir = substr($obs_str, 0, 2);
+      my @obs_dirs = sort(glob("${MICA_ASP1}/${obs_top_dir}/${obs_str}_*"));
+      if (scalar(@obs_dirs)){
+          $obs_dir = $obs_dirs[-1];
+          print "using $obs_dir for data_dir\n" if $opt{loud}; 
+      }
+      else{
+          croak("-obsid specified but directory not found in ${MICA_ASP1}/${obs_top_dir}");
+      }
   }
   else{
-    croak("-obsid specified but directory not found in ${MICA_ASP1}/${obs_top_dir}");
+      my $dbh = sql_connect('sybase-aca-aca_read');
+      my @obsinfo = sql_fetchall_array_of_hashref($dbh,
+                                                  "select * from observations where obsid = $opt{obsid}");
+      if (not scalar(@obsinfo)){
+          croak("-obsid specified but not found in observations_all sybase table");
+      }
+      if (scalar(@obsinfo) > 1){
+          print "Multi-obi or multiple entries in obs table; using first entry\n";
+      }
+      my $obi = $obsinfo[0];
+      my $start = $obi->{'kalman_datestart'};
+      my $stop = $obi->{'kalman_datestop'};
+      my @data_files = get_l0_data($start, $stop);
+      $obs_dir = tempdir(CLEANUP => 0);
+      for my $file (@data_files){
+          symlink $file, $obs_dir . "/" . basename($file);
+      }
+      $opt{tstart} = date2time($start);
+      $opt{tstop} = date2time($stop);
+      print "Using temp directory for obsid file list.  Repeat use with:\n";
+      print "\t aca_movie.pl -obsdir $obs_dir -tstart $opt{tstart} -tstop $opt{tstop}\n";
   }
 }
+
+
+# Get reasonable list of aca0 files from mica archive
+sub get_l0_data{
+   my ($start, $stop) = @_;
+   my @data_dirs = get_l0_dirs($start, $stop);
+   my @data_files;
+   for my $slot (0 .. 7){
+      my @slot_data_files;
+      for my $dir (@data_dirs){
+         push @slot_data_files, sort(glob("$dir/aca*_${slot}_*"));
+      }
+      my @slot_file_times;
+      for my $file (@slot_data_files){
+          my ($file_tstart) = (basename($file) =~ /\A[^\d]+(\d+)/);
+          push @slot_file_times, $file_tstart;
+      }
+      my $first_file_idx = last_index { $_ < date2time($start)} @slot_file_times;
+      my $last_file_idx = first_index { $_ >= date2time($stop)} @slot_file_times;
+      if (($first_file_idx > 0) and ($last_file_idx > 0)){
+          push @data_files, @slot_data_files[$first_file_idx .. $last_file_idx];
+      }
+   }
+   return @data_files;
+}
+
+# Get reasonable list of aca0 data directories (stored in YEAR/DOY directories)
+# from mica archive
+sub get_l0_dirs{
+   my ($start, $stop) = @_;
+   my $mica_aca0 = '/data/aca/archive/aca0';
+   my @data_dirs;
+   my ($start_year, $start_day);
+   if ($start =~ /(\d{4}):(\d{3}):\d{2}:\d{2}:\d{2}\.\d{3}/){
+      $start_year = $1;
+      $start_day = $2;
+   }
+   push @data_dirs, "$mica_aca0/$start_year/$start_day";
+   my ($stop_year, $stop_day);
+   if ($stop =~ /(\d{4}):(\d{3}):\d{2}:\d{2}:\d{2}\.\d{3}/){
+      $stop_year = $1;
+      $stop_day = $2;
+   }
+   my @all_day_glob;
+   # Get all of the day dirs from the range of the start year to the stop year
+   # Also get start_year - 1 if available to help with edge cases (data starts
+   # just before the beginning of the year).
+   for my $year ($start_year - 1 .. $stop_year){
+       if (-e "$mica_aca0/$year"){
+           push @all_day_glob, sort(glob("$mica_aca0/$year/*"));
+       }
+   }
+   my $day_start = first_index { $_ eq "$mica_aca0/$start_year/$start_day" } @all_day_glob;
+   my $day_stop = first_index { $_ eq "$mica_aca0/$stop_year/$stop_day" } @all_day_glob;
+   # Get the range of days, plus one extra day at the start to help with day start
+   # edge cases
+   my @day_glob = @all_day_glob[$day_start - 1 .. $day_stop];
+   return @day_glob;
+}
+
 
 if (defined $obs_dir){
   ($data_dir = $obs_dir) and (chdir $data_dir or croak "Could not find directory $data_dir\n");
@@ -568,7 +659,11 @@ Print this help information.
 
 =item B<-obsid <obsid>>
 
-Display data for obsid <obsid>.  Uses the most recent asp1 processing in the mica archive.
+Display data for obsid <obsid>.  Makes a tempdir with a list of links to mica archive l0 files.
+
+=item B<-level1>
+
+In combination with the -obsid option, display mica archive level 1 products instead of l0.
 
 =item B<-obsdir <directory>>
 
