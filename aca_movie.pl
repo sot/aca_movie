@@ -65,6 +65,7 @@ our %opt = ( slot => "0 1 2 3 4 5 6 7",
 	     dt     => $DT,
 	     log  => 1,
              dark_cal => 1,
+         obsdir => undef,
 	   );
 
 GetOptions(\%opt,
@@ -81,6 +82,7 @@ GetOptions(\%opt,
 	   'overlay!',
 	   'asol=s',
        'dark_cal!',
+       'obsdir=s',
 	   );
 
 $opt{tstart} = date2time($opt{tstart}) if $opt{tstart} =~ /:/;
@@ -103,6 +105,9 @@ $Slot::loud = $opt{loud};
 $loud = $opt{loud};
 
 my $obs_dir;
+if ($opt{obsdir}){
+    $obs_dir = $opt{obsdir};
+}
 if ($opt{obsid}){
   my $obs_str = sprintf("%05d", $opt{obsid});
   my $obs_top_dir = substr($obs_str, 0, 2);
@@ -564,6 +569,10 @@ Print this help information.
 =item B<-obsid <obsid>>
 
 Display data for obsid <obsid>.  Uses the most recent asp1 processing in the mica archive.
+
+=item B<-obsdir <directory>>
+
+Display data in director <directory>.
 
 =tem B<-dark_cal>
 
