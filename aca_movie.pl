@@ -138,7 +138,8 @@ if ($opt{obsid}){
           print "Multi-obi or multiple entries in obs table; using first entry\n";
       }
       my $obi = $obsinfo[0];
-      my $start = $obi->{'kalman_datestart'};
+      # 5 minutes before kalman to get acquisition sequence
+      my $start = time2date(date2time($obi->{'kalman_datestart'}) - 300);
       my $stop = $obi->{'kalman_datestop'};
       my @data_files = get_l0_data($start, $stop);
       $obs_dir = tempdir(CLEANUP => 0);
@@ -669,9 +670,10 @@ In combination with the -obsid option, display mica archive level 1 products ins
 
 Display data in director <directory>.
 
-=tem B<-dark_cal>
+=item B<-dark_cal>
 
-Enable/disable use of dark cal image in the window background.
+Enable/disable use of dark cal image in the window background
+(Enabled by default, use -no_dark_cal to disable).
 
 =item B<-slot <slots>>
 
@@ -700,7 +702,7 @@ Make the fixed image window be <size> x <size> pixels.  Default is 14.
 
 =item B<-zoom <scale>>
 
-Zoom the image data by <scale>.  Default is 8.  
+Zoom the image data by <scale>.  Default is 8.
 
 =item B<-overlay>
 
@@ -714,7 +716,11 @@ on a fixed sky grid instead of the default fixed CCD grid.  The <asol_file> must
 
 =item B<-loud>
 
-Enable debugging information.
+Enable debugging information including image pixel values.
+
+=item B<-log>
+
+Display image pixel values in log scale (True by default, use -no_log for linear scale)
 
 =back
 
