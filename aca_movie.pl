@@ -138,7 +138,8 @@ if ($opt{obsid}){
           print "Multi-obi or multiple entries in obs table; using first entry\n";
       }
       my $obi = $obsinfo[0];
-      my $start = $obi->{'kalman_datestart'};
+      # 5 minutes before kalman to get acquisition sequence
+      my $start = time2date(date2time($obi->{'kalman_datestart'}) - 300);
       my $stop = $obi->{'kalman_datestop'};
       my @data_files = get_l0_data($start, $stop);
       $obs_dir = tempdir(CLEANUP => 0);
