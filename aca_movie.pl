@@ -14,6 +14,7 @@ use warnings;
 use PDL;
 use PDL::NiceSlice;
 use PDL::ImageND;
+use CFITSIO::Simple;
 use Astro::FITS::CFITSIO::Simple qw(rdfits);
 use Time::HiRes qw(sleep);
 use Getopt::Long;
@@ -131,16 +132,41 @@ if ($opt{obsid}){
       my $dbh = sql_connect('sybase-aca-aca_read');
       my @obsinfo = sql_fetchall_array_of_hashref($dbh,
                                                   "select * from observations where obsid = $opt{obsid}");
+      my $start;
+      my $stop;
       if (not scalar(@obsinfo)){
-          croak("-obsid specified but not found in observations_all sybase table");
+          my $obs_str = sprintf("%05d", $opt{obsid});
+          my $obs_top_dir = substr($obs_str, 0, 2);
+          my @obs_dirs = sort(glob("${MICA_ASP1}/${obs_top_dir}/${obs_str}_*"));
+          if (scalar(@obs_dirs)){
+              $obs_dir = $obs_dirs[-1];
+              print "using $obs_dir of ASP1 for tstart/tstop \n" if $opt{loud}; 
+          }
+          else{
+              croak("-obsid specified but directory not found in ${MICA_ASP1}/${obs_top_dir} or in observations_all sybase table");
+          }
+          # Get a list of L1 ACA image files
+          my $asp1_dir = $obs_dirs[-1];
+          my $l1_glob = "$asp1_dir/pcad*asol1.fits*";
+          my @files = glob($l1_glob);
+          croak("no asol files found for obsid in $asp1_dir") unless @files;
+          # Set reasonable value of tstart based on first file name timestamp
+          # and then read last file for final tstop
+          my $hdr0 = CFITSIO::Simple::fits_read_hdr($files[0]);
+          $start = time2date($hdr0->{TSTART} - 300);
+          my $hdr1 = CFITSIO::Simple::fits_read_hdr($files[-1]);
+          $stop = time2date($hdr1->{TSTOP});
+          print ("using $start and $stop from $asp1_dir \n");
       }
-      if (scalar(@obsinfo) > 1){
-          print "Multi-obi or multiple entries in obs table; using first entry\n";
+      else{
+          if (scalar(@obsinfo) > 1){
+              print "Multi-obi or multiple entries in obs table; using first entry\n";
+          }
+          my $obi = $obsinfo[0];
+          # 5 minutes before kalman to get acquisition sequence
+          $start = time2date(date2time($obi->{'kalman_datestart'}) - 300);
+          $stop = $obi->{'kalman_datestop'};
       }
-      my $obi = $obsinfo[0];
-      # 5 minutes before kalman to get acquisition sequence
-      my $start = time2date(date2time($obi->{'kalman_datestart'}) - 300);
-      my $stop = $obi->{'kalman_datestop'};
       my @data_files = get_l0_data($start, $stop);
       $obs_dir = tempdir(CLEANUP => 0);
       for my $file (@data_files){
