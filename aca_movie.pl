@@ -150,8 +150,8 @@ if ($opt{obsid}){
           my $l1_glob = "$asp1_dir/pcad*asol1.fits*";
           my @files = sort(glob($l1_glob));
           croak("no asol files found for obsid in $asp1_dir") unless @files;
-          # Set reasonable value of tstart based on first file name timestamp
-          # and then read last file for final tstop
+          # Use first file start minus some time for acquisition and last file
+          # stop as the range for this tool
           my $hdr0 = CFITSIO::Simple::fits_read_hdr($files[0]);
           $start = time2date($hdr0->{TSTART} - 300);
           my $hdr1 = CFITSIO::Simple::fits_read_hdr($files[-1]);
