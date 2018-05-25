@@ -148,7 +148,7 @@ if ($opt{obsid}){
           # Get a list of L1 ACA image files
           my $asp1_dir = $obs_dirs[-1];
           my $l1_glob = "$asp1_dir/pcad*asol1.fits*";
-          my @files = glob($l1_glob);
+          my @files = sort(glob($l1_glob));
           croak("no asol files found for obsid in $asp1_dir") unless @files;
           # Set reasonable value of tstart based on first file name timestamp
           # and then read last file for final tstop
