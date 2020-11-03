@@ -117,16 +117,7 @@ if ($opt{obsdir}){
 }
 if ($opt{obsid}){
   if ($opt{level1}){
-      my $obs_str = sprintf("%05d", $opt{obsid});
-      my $obs_top_dir = substr($obs_str, 0, 2);
-      my @obs_dirs = sort(glob("${MICA_ASP1}/${obs_top_dir}/${obs_str}_*"));
-      if (scalar(@obs_dirs)){
-          $obs_dir = $obs_dirs[-1];
-          print "using $obs_dir for data_dir\n" if $opt{loud}; 
-      }
-      else{
-          croak("-obsid specified but directory not found in ${MICA_ASP1}/${obs_top_dir}");
-      }
+      croak("-level1 + -obsid no longer supported (mica adat data not available)");
   }
   else{
       my $dbh = sql_connect('sybase-aca-aca_read');
@@ -690,7 +681,10 @@ Display data for obsid <obsid>.  Makes a tempdir with a list of links to mica ar
 
 =item B<-level1>
 
-In combination with the -obsid option, display mica archive level 1 products instead of l0.
+If l0 and l1 data are available in directory, use the l1 data (otherwise will
+use the l0 data by default). This option used to also work with the -obsid
+option to use the mica archive l1 adat data, directly, but that is deprecated
+(access adat files from mica data archive is no longer supported).
 
 =item B<-obsdir <directory>>
 
@@ -826,7 +820,14 @@ sub new {
     unless (@{$self->{file_list}}) {
 	my $l0_glob = "aca*$self->{slot}_img0.fits*";
 	my $l1_glob = "pcad*adat$self->{slot}?.fits*";
-	$self->{file_level} = (@files = glob($l0_glob)) ? 0 : 1;
+
+	# Use the L0 data by default if available, unless level1 option set.
+	if ($opt{level1}){
+	    $self->{file_level} = 1;
+	}
+	else{
+	    $self->{file_level} = (@files = glob($l0_glob)) ? 0 : 1;
+	}
 	@files = glob($l1_glob) unless @files;
 	$self->{file_list} = [@files];
     }
